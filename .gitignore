@@ -1,0 +1,27 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment
+venv/
+.env
+
+# Model files (HUGE, jangan masuk GitHub)
+cora_ner_model/
+*.safetensors
+*.bin
+
+# FastAPI logs
+logs/
+*.log
+
+# IDE files
+.vscode/
+.idea/
+
+# Output build / temp
+dist/
+build/
+*.DS_Store
