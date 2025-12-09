@@ -1,0 +1,5 @@
+cora_ner_model/
+*.safetensors
+__pycache__/
+*.pyc
+venv/
