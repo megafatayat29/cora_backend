@@ -25,3 +25,5 @@ logs/
 dist/
 build/
 *.DS_Store
+cora_ner_model/
+*.safetensors
