@@ -7,6 +7,8 @@ class Settings(BaseSettings):
     NEO4J_PASSWORD: str = "xsw21qaz"
 
     HF_TOKEN: str | None = None
+    HF_TOKEN_NER: str | None = None
+    BASE_URL: str = "http://mentorku.cloud:7000"
 
     model_config = SettingsConfigDict(
         env_file=".env",

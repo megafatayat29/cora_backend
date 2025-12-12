@@ -1,215 +1,44 @@
-from transformers import AutoTokenizer, AutoModelForTokenClassification
-import torch
+from fastapi import APIRouter
+from pydantic import BaseModel
+from nlp_inference import extract_entities
+import requests
+from config import get_settings
 
-tokenizer = AutoTokenizer.from_pretrained("cora_ner_model")
-model = AutoModelForTokenClassification.from_pretrained("cora_ner_model")
+settings = get_settings()
+HF_TOKEN = settings.HF_TOKEN_NER
+BASE_URL = settings.BASE_URL
 
-def ner_infer(text):
-    inputs = tokenizer(text, return_tensors="pt")
-    outputs = model(**inputs)
-    preds = outputs.logits.argmax(dim=-1)[0]
+router = APIRouter()
 
-    tokens = tokenizer.convert_ids_to_tokens(inputs["input_ids"][0])
-    labels = [model.config.id2label[int(p)] for p in preds]
+class TextRequest(BaseModel):
+    text: str
 
-    merged_tokens = []
-    merged_labels = []
 
-    current_word = ""
-    current_label = None
+@router.post("/infer_and_recommend")
+def infer_and_recommend(req: TextRequest):
 
-    for token, label in zip(tokens, labels):
-        if token.startswith("##"):
-            # merge subword token into the previous word
-            current_word += token[2:]
-        else:
-            # push previous word first
-            if current_word:
-                merged_tokens.append(current_word)
-                merged_labels.append(current_label)
-            current_word = token
-            current_label = label
+    # --- STEP 1: Extract entities using your ML model ---
+    entities = extract_entities(req.text)
 
-    # push last word
-    if current_word:
-        merged_tokens.append(current_word)
-        merged_labels.append(current_label)
-
-    return list(zip(merged_tokens, merged_labels))
-
-def extract_entities(text):
-    pairs = ner_infer(text)
-
-    # remove noise tokens
-    NOISE = {"[CLS]", "[SEP]", ".", ",", ";", ":"}
-    pairs = [(w.lower(), l) for w, l in pairs if w not in NOISE]
-
-    entities = {
-        "industry": None,
-        "serviceProvider": [],
-        "region": [],
-        "purpose": [],
-        "scale": None
+    # --- STEP 2: Build payload for /recommend ---
+    payload = {
+        "industry": entities["industry"] or "",
+        "serviceProvider": entities["serviceProvider"],
+        "region": entities["region"],
+        "purpose": entities["purpose"],
+        "scale": entities["scale"] or "",
+        "ranking_preference": "termurah",
+        "price_limit": 0,
+        "limit": 10
     }
 
-    PURPOSE_MAP = {
-        "data": "General Purpose",
-        "analytics": "General Purpose",
-        "machine": "Compute Optimized",
-        "learning": "Compute Optimized",
-        "storage": "Storage Optimized",
-        "web": "General Purpose",
-        "hosting": "General Purpose",
-        "ai": "Accelerator Specialized",
-        "compute": "Compute Optimized"
+    # --- STEP 3: Call existing /recommend endpoint ---
+    RECOMMEND_ENDPOINT = f"{BASE_URL}/recommend"
+    response = requests.post(RECOMMEND_ENDPOINT, json=payload)
+
+    # --- STEP 4: Return combined result ---
+    return {
+        "entities": entities,
+        "payload": payload,
+        "recommendation": response.json()
     }
-    
-    SCALE_MAP = {
-        "small": "Small",
-        "medium": "Medium",
-        "growing": "Medium",
-        "big": "Large",
-        "large": "Large"
-    }
-
-    INDUSTRY_MAP = {
-        # AI_ML
-        "ai": "AI_ML",
-        "artificial intelligence": "AI_ML",
-        "machine learning": "AI_ML",
-        "ml": "AI_ML",
-        "deep learning": "AI_ML",
-
-        # Agriculture
-        "agriculture": "Agriculture",
-        "farming": "Agriculture",
-        "agri": "Agriculture",
-        "agritech": "Agriculture",
-
-        # Automotive
-        "automotive": "Automotive",
-        "car": "Automotive",
-        "vehicle": "Automotive",
-        "mobility": "Automotive",
-
-        # Banking
-        "banking": "Banking",
-        "bank": "Banking",
-        "finance": "Banking",
-        "financial services": "Banking",
-
-        # BigData_Analytics
-        "big data": "BigData_Analytics",
-        "analytics": "BigData_Analytics",
-        "data analytics": "BigData_Analytics",
-        "data science": "BigData_Analytics",
-
-        # Cybersecurity
-        "cybersecurity": "Cybersecurity",
-        "security": "Cybersecurity",
-        "infosec": "Cybersecurity",
-        "threat detection": "Cybersecurity",
-
-        # Ecommerce
-        "ecommerce": "Ecommerce",
-        "online store": "Ecommerce",
-        "marketplace": "Ecommerce",
-        "e-commerce": "Ecommerce",
-
-        # Education
-        "education": "Education",
-        "school": "Education",
-        "university": "Education",
-        "edtech": "Education",
-
-        # Energy
-        "energy": "Energy",
-        "oil": "Energy",
-        "gas": "Energy",
-        "power": "Energy",
-
-        # Fintech
-        "fintech": "Fintech",
-        "payment": "Fintech",
-        "payments": "Fintech",
-        "wallet": "Fintech",
-        "insurtech": "Fintech",
-
-        # Gaming
-        "gaming": "Gaming",
-        "game": "Gaming",
-        "esports": "Gaming",
-
-        # Government
-        "government": "Government",
-        "public sector": "Government",
-
-        # Healthcare
-        "healthcare": "Healthcare",
-        "health": "Healthcare",
-        "medtech": "Healthcare",
-        "hospital": "Healthcare",
-        "clinic": "Healthcare",
-
-        # IoT Platforms
-        "iot": "IoT_Platforms",
-        "internet of things": "IoT_Platforms",
-        "sensor": "IoT_Platforms",
-        "embedded": "IoT_Platforms",
-
-        # Logistics
-        "logistics": "Logistics",
-        "delivery": "Logistics",
-        "shipping": "Logistics",
-        "supply chain": "Logistics",
-
-        # Manufacturing
-        "manufacturing": "Manufacturing",
-        "factory": "Manufacturing",
-        "industrial": "Manufacturing",
-
-        # Media & Entertainment
-        "media": "Media_and_Entertainment",
-        "entertainment": "Media_and_Entertainment",
-        "broadcast": "Media_and_Entertainment",
-        "content": "Media_and_Entertainment",
-
-        # Pharmaceutical
-        "pharma": "Pharmaceutical",
-        "pharmaceutical": "Pharmaceutical",
-        "biotech": "Pharmaceutical",
-
-        # Retail
-        "retail": "Retail",
-        "store": "Retail",
-        "shop": "Retail",
-
-        # Telecommunications
-        "telecom": "Telecommunications",
-        "telco": "Telecommunications",
-        "telecommunications": "Telecommunications",
-        "5g": "Telecommunications",
-    }
-
-    for w, label in pairs:
-
-        if label == "B-INDUSTRY":
-            if w in INDUSTRY_MAP:
-                entities["industry"] = INDUSTRY_MAP[w]
-
-        elif label == "B-PROVIDER":
-            entities["serviceProvider"].append(w.upper())
-
-        elif label == "B-REGION":
-            entities["region"].append(w.title())
-
-        elif label == "B-SCALE":
-            if w in SCALE_MAP:
-                entities["scale"].append(SCALE_MAP[w])
-
-        elif label == "B-PURPOSE":
-            # convert to dropdown purpose
-            if w in PURPOSE_MAP:
-                entities["purpose"].append(PURPOSE_MAP[w])
-
-    return entities
